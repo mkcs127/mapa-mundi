@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mapa Mundi Interactivo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/d3@7.9.0/dist/d3.min.js" integrity="sha384-CjloA8y00+1SDAUkjs099PVfnY2KmDC2BZnws9kh8D/lX1s46w6EPhpXdqMfjK6i" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/topojson-client@3.1.0/dist/topojson-client.min.js" integrity="sha384-Ukv1p/xTma6P4/2bY5KzWBw+ydSpXmhCMtyciIQVDJ1RmOxtCYNMF1uXT9T63H67" crossorigin="anonymous"></script>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden}
+body{font-family:'Baloo 2',system-ui,sans-serif;color:#1f2a44;background:radial-gradient(circle at 50% 45%,#fdf8ee 0%,#f4ecdc 70%)}
+a{color:#2c5fd6}a:hover{color:#1b3f99}
+#stage{position:fixed;inset:0}
+#stage svg{width:100%;height:100%;display:block;cursor:grab;touch-action:none}
+#stage svg.dragging{cursor:grabbing}
+.country{stroke:#fff;stroke-width:.7;cursor:pointer;transition:opacity .25s}
+.country:hover{filter:brightness(1.08)}
+.country.dim{opacity:.28}
+.country.sel{stroke:#1f2a44;stroke-width:2}
+.cap-dot{fill:#fff;stroke:#1f2a44;stroke-width:1.3;cursor:pointer}
+.cap-dot.sel{fill:#ff5a5f;stroke:#fff;stroke-width:2}
+.cap-label{font-weight:700;fill:#1f2a44;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round;pointer-events:none}
+.cap-label.sel{fill:#d92f3a}
+.panel{position:fixed;background:#fff;border-radius:22px;box-shadow:0 6px 0 rgba(31,42,68,.12),0 12px 30px rgba(31,42,68,.12)}
+#top{top:16px;left:16px;bottom:16px;padding:12px 8px;width:112px;display:flex;flex-direction:column;gap:10px;border-radius:18px}
+h1{margin:0 4px;font-size:18px;line-height:1;font-weight:800;letter-spacing:-.01em}
+h1 span{color:#ff5a5f}
+.search{position:relative}
+.search input{width:100%;font:inherit;font-size:13px;font-weight:600;padding:6px 8px;border-radius:10px;border:2.5px solid #e6dcc8;outline:none;background:#fdfaf3;color:#1f2a44}
+.search input:focus{border-color:#2c5fd6;background:#fff}
+#results{position:absolute;left:0;width:280px;top:calc(100% + 6px);background:#fff;border-radius:14px;box-shadow:0 10px 26px rgba(31,42,68,.18);overflow:hidden;z-index:5;max-height:300px;overflow-y:auto}
+#results button{display:flex;align-items:center;gap:10px;width:100%;border:0;background:none;font:inherit;font-size:16px;font-weight:600;padding:8px 12px;text-align:left;cursor:pointer;color:#1f2a44}
+#results button:hover,#results button.active{background:#eef3ff}
+#results img{width:28px;height:19px;object-fit:cover;border-radius:4px;box-shadow:0 0 0 1px rgba(0,0,0,.08)}
+#results small{margin-left:auto;color:#6b7590;font-weight:500}
+.chips{display:flex;flex-direction:column;gap:4px}
+.chips-title{margin:4px 4px 0;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#6b7590}
+.chip{font:inherit;font-size:12px;line-height:1.15;font-weight:700;border:0;border-radius:10px;padding:5px 6px 3px;cursor:pointer;background:none;color:#1f2a44;display:flex;align-items:center;gap:6px;text-align:left}
+.chip:hover{background:#f6f0e4}
+.chip i{width:9px;height:9px;border-radius:50%;display:block;flex:none}
+.chip.on{background:#1f2a44;color:#fff}
+#card{right:16px;top:16px;width:min(320px,calc(100vw - 32px));padding:16px;display:flex;flex-direction:column;gap:12px;transform:translateY(-12px);opacity:0;pointer-events:none;transition:.25s}
+#card.show{transform:none;opacity:1;pointer-events:auto}
+#card .flag{width:100%;aspect-ratio:3/2;border-radius:14px;overflow:hidden;background:#f1ebde;box-shadow:inset 0 0 0 1px rgba(0,0,0,.06)}
+#card .flag img{width:100%;height:100%;object-fit:cover;display:block}
+#card h2{margin:0;font-size:30px;line-height:1.05;font-weight:800;text-wrap:pretty}
+.facts{display:grid;gap:8px}
+.fact{display:grid;grid-template-columns:96px 1fr;align-items:baseline;gap:8px;padding:8px 12px;border-radius:12px;background:#fbf7ef}
+.fact b{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:#6b7590;font-weight:700}
+.fact span{font-size:18px;font-weight:700}
+#close{position:absolute;top:10px;right:10px;width:34px;height:34px;border-radius:50%;border:0;background:rgba(255,255,255,.92);font:inherit;font-size:20px;font-weight:800;cursor:pointer;color:#1f2a44;box-shadow:0 2px 6px rgba(0,0,0,.15)}
+#tools{right:16px;bottom:16px;padding:6px;display:flex;flex-direction:column;gap:6px}
+#tools button{width:44px;height:44px;border-radius:14px;border:0;background:#f1ebde;font:inherit;font-size:22px;font-weight:800;cursor:pointer;color:#1f2a44;display:grid;place-items:center}
+#tools button:hover{background:#e6dcc8}
+#tools button.on{background:#1f2a44;color:#fff}
+#hint{position:fixed;left:calc(50% + 68px);bottom:16px;transform:translateX(-50%);font-size:15px;font-weight:600;color:#6b7590;background:rgba(255,255,255,.8);padding:4px 14px 2px;border-radius:999px;white-space:nowrap}
+#tip{position:fixed;pointer-events:none;background:#1f2a44;color:#fff;font-weight:700;font-size:15px;padding:4px 10px 2px;border-radius:10px;opacity:0;transition:opacity .15s;display:flex;align-items:center;gap:8px}
+#tip img{width:22px;height:15px;border-radius:3px;object-fit:cover}
+#card{max-height:calc(100vh - 210px);overflow-y:auto}
+@media (max-height:760px){#card .flag{aspect-ratio:2/1}#card h2{font-size:24px}.fact{padding:6px 10px}}
+@media (min-width:721px) and (max-height:620px){#tools{flex-direction:row;right:auto;left:152px;bottom:16px}#card{max-height:calc(100vh - 32px)}#hint{display:none}}
+@media (max-width:720px){#top{bottom:auto;right:16px;width:auto;padding:12px}.chips{flex-direction:row;flex-wrap:wrap}.chips-title{display:none}.chip{font-size:13px;padding:4px 10px 2px;background:#f1ebde}#results{width:100%}#tools{bottom:auto;top:45%}#card{z-index:3;top:auto;bottom:16px;right:16px;left:16px;width:auto}#card .flag{aspect-ratio:3/1.4}#hint{display:none}}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<div id="top" class="panel">
+  <h1>Mapa <span>Mundi</span></h1>
+  <div class="search">
+    <input id="q" type="text" placeholder="Buscar…" autocomplete="off">
+    <div id="results" hidden></div>
+  </div>
+  <div class="chips-title">Continentes</div>
+  <div class="chips" id="chips"></div>
+</div>
+
+<div id="card" class="panel">
+  <button id="close" aria-label="Cerrar">×</button>
+  <div class="flag"><img id="c-flag" alt=""></div>
+  <h2 id="c-name"></h2>
+  <div class="facts">
+    <div class="fact"><b>Capital</b><span id="c-cap"></span></div>
+    <div class="fact"><b>Continente</b><span id="c-cont"></span></div>
+    <div class="fact"><b>Idioma</b><span id="c-lang"></span></div>
+  </div>
+</div>
+
+<div id="tools" class="panel">
+  <button id="zin" title="Acercar">+</button>
+  <button id="zout" title="Alejar">−</button>
+  <button id="spin" class="on" title="Girar solo">⟳</button>
+</div>
+<div id="hint">Arrastra para girar el globo · rueda para hacer zoom · toca un país</div>
+<div id="tip"></div>
+
+<script>
+const CONT = {
+  AF:{n:'África',c:'oklch(0.78 0.15 60)'},
+  EU:{n:'Europa',c:'oklch(0.72 0.15 300)'},
+  AS:{n:'Asia',c:'oklch(0.72 0.16 15)'},
+  NA:{n:'América del Norte',c:'oklch(0.76 0.15 145)'},
+  SA:{n:'América del Sur',c:'oklch(0.84 0.15 95)'},
+  OC:{n:'Oceanía',c:'oklch(0.76 0.12 200)'}
+};
+// id|iso2|nombre|capital|lat|lon|continente|idioma
+const RAW = `012|dz|Argelia|Argel|36.75|3.06|AF|Árabe
+024|ao|Angola|Luanda|-8.84|13.23|AF|Portugués
+204|bj|Benín|Porto Novo|6.50|2.60|AF|Francés
+072|bw|Botsuana|Gaborone|-24.65|25.91|AF|Inglés y setsuana
+854|bf|Burkina Faso|Uagadugú|12.37|-1.52|AF|Mooré y francés
+108|bi|Burundi|Gitega|-3.43|29.93|AF|Kirundi y francés
+120|cm|Camerún|Yaundé|3.85|11.50|AF|Francés e inglés
+140|cf|República Centroafricana|Bangui|4.39|18.56|AF|Sango y francés
+148|td|Chad|Yamena|12.13|15.06|AF|Francés y árabe
+178|cg|República del Congo|Brazzaville|-4.27|15.28|AF|Francés
+180|cd|República Democrática del Congo|Kinsasa|-4.33|15.31|AF|Francés
+384|ci|Costa de Marfil|Yamusukro|6.82|-5.28|AF|Francés
+262|dj|Yibuti|Yibuti|11.59|43.15|AF|Francés y árabe
+818|eg|Egipto|El Cairo|30.04|31.24|AF|Árabe
+226|gq|Guinea Ecuatorial|Malabo|3.75|8.78|AF|Español y francés
+232|er|Eritrea|Asmara|15.32|38.93|AF|Tigriña
+748|sz|Esuatini|Mbabane|-26.31|31.14|AF|Suazi e inglés
+231|et|Etiopía|Adís Abeba|9.03|38.74|AF|Amhárico
+266|ga|Gabón|Libreville|0.39|9.45|AF|Francés
+270|gm|Gambia|Banjul|13.45|-16.58|AF|Inglés
+288|gh|Ghana|Acra|5.60|-0.19|AF|Inglés
+324|gn|Guinea|Conakri|9.64|-13.58|AF|Francés
+624|gw|Guinea-Bisáu|Bisáu|11.86|-15.60|AF|Portugués
+404|ke|Kenia|Nairobi|-1.29|36.82|AF|Suajili e inglés
+426|ls|Lesoto|Maseru|-29.31|27.48|AF|Sesoto e inglés
+430|lr|Liberia|Monrovia|6.31|-10.80|AF|Inglés
+434|ly|Libia|Trípoli|32.89|13.19|AF|Árabe
+450|mg|Madagascar|Antananarivo|-18.88|47.51|AF|Malgache y francés
+454|mw|Malaui|Lilongüe|-13.96|33.79|AF|Inglés y chichewa
+466|ml|Malí|Bamako|12.64|-8.00|AF|Bambara
+478|mr|Mauritania|Nuakchot|18.09|-15.98|AF|Árabe
+504|ma|Marruecos|Rabat|34.02|-6.84|AF|Árabe y bereber
+508|mz|Mozambique|Maputo|-25.97|32.57|AF|Portugués
+516|na|Namibia|Windhoek|-22.56|17.08|AF|Inglés
+562|ne|Níger|Niamey|13.51|2.11|AF|Francés
+566|ng|Nigeria|Abuya|9.08|7.40|AF|Inglés
+646|rw|Ruanda|Kigali|-1.95|30.06|AF|Kinyarwanda
+686|sn|Senegal|Dakar|14.72|-17.47|AF|Francés
+694|sl|Sierra Leona|Freetown|8.48|-13.23|AF|Inglés
+706|so|Somalia|Mogadiscio|2.05|45.32|AF|Somalí y árabe
+710|za|Sudáfrica|Pretoria|-25.75|28.19|AF|Zulú, inglés y otros
+728|ss|Sudán del Sur|Yuba|4.85|31.58|AF|Inglés
+729|sd|Sudán|Jartum|15.50|32.56|AF|Árabe e inglés
+834|tz|Tanzania|Dodoma|-6.16|35.75|AF|Suajili e inglés
+768|tg|Togo|Lomé|6.13|1.22|AF|Francés
+788|tn|Túnez|Túnez|36.81|10.18|AF|Árabe
+800|ug|Uganda|Kampala|0.35|32.58|AF|Inglés y suajili
+732|eh|Sáhara Occidental|El Aaiún|27.15|-13.20|AF|Árabe
+894|zm|Zambia|Lusaka|-15.39|28.32|AF|Inglés
+716|zw|Zimbabue|Harare|-17.83|31.05|AF|Inglés, shona y ndebele
+008|al|Albania|Tirana|41.33|19.82|EU|Albanés
+040|at|Austria|Viena|48.21|16.37|EU|Alemán
+112|by|Bielorrusia|Minsk|53.90|27.56|EU|Bielorruso y ruso
+056|be|Bélgica|Bruselas|50.85|4.35|EU|Neerlandés, francés y alemán
+070|ba|Bosnia y Herzegovina|Sarajevo|43.86|18.41|EU|Bosnio, croata y serbio
+100|bg|Bulgaria|Sofía|42.70|23.32|EU|Búlgaro
+191|hr|Croacia|Zagreb|45.81|15.98|EU|Croata
+196|cy|Chipre|Nicosia|35.17|33.36|EU|Griego y turco
+203|cz|Chequia|Praga|50.08|14.44|EU|Checo
+208|dk|Dinamarca|Copenhague|55.68|12.57|EU|Danés
+233|ee|Estonia|Tallin|59.44|24.75|EU|Estonio
+246|fi|Finlandia|Helsinki|60.17|24.94|EU|Finés y sueco
+250|fr|Francia|París|48.86|2.35|EU|Francés
+276|de|Alemania|Berlín|52.52|13.40|EU|Alemán
+300|gr|Grecia|Atenas|37.98|23.73|EU|Griego
+348|hu|Hungría|Budapest|47.50|19.04|EU|Húngaro
+352|is|Islandia|Reikiavik|64.15|-21.94|EU|Islandés
+372|ie|Irlanda|Dublín|53.35|-6.26|EU|Irlandés e inglés
+380|it|Italia|Roma|41.90|12.50|EU|Italiano
+-1|xk|Kosovo|Pristina|42.66|21.17|EU|Albanés y serbio
+428|lv|Letonia|Riga|56.95|24.11|EU|Letón
+440|lt|Lituania|Vilna|54.69|25.28|EU|Lituano
+442|lu|Luxemburgo|Luxemburgo|49.61|6.13|EU|Luxemburgués, francés y alemán
+807|mk|Macedonia del Norte|Skopie|42.00|21.43|EU|Macedonio
+498|md|Moldavia|Chisináu|47.01|28.86|EU|Rumano
+499|me|Montenegro|Podgorica|42.43|19.26|EU|Montenegrino
+528|nl|Países Bajos|Ámsterdam|52.37|4.90|EU|Neerlandés
+578|no|Noruega|Oslo|59.91|10.75|EU|Noruego
+616|pl|Polonia|Varsovia|52.23|21.01|EU|Polaco
+620|pt|Portugal|Lisboa|38.72|-9.14|EU|Portugués
+642|ro|Rumania|Bucarest|44.43|26.10|EU|Rumano
+643|ru|Rusia|Moscú|55.76|37.62|EU|Ruso
+688|rs|Serbia|Belgrado|44.79|20.45|EU|Serbio
+703|sk|Eslovaquia|Bratislava|48.15|17.11|EU|Eslovaco
+705|si|Eslovenia|Liubliana|46.06|14.51|EU|Esloveno
+724|es|España|Madrid|40.42|-3.70|EU|Español
+752|se|Suecia|Estocolmo|59.33|18.07|EU|Sueco
+756|ch|Suiza|Berna|46.95|7.45|EU|Alemán, francés, italiano y romanche
+804|ua|Ucrania|Kiev|50.45|30.52|EU|Ucraniano
+826|gb|Reino Unido|Londres|51.51|-0.13|EU|Inglés
+004|af|Afganistán|Kabul|34.53|69.17|AS|Pastún y darí
+051|am|Armenia|Ereván|40.18|44.51|AS|Armenio
+031|az|Azerbaiyán|Bakú|40.41|49.87|AS|Azerí
+050|bd|Bangladés|Daca|23.81|90.41|AS|Bengalí
+064|bt|Bután|Timbu|27.47|89.64|AS|Dzongkha
+096|bn|Brunéi|Bandar Seri Begawan|4.90|114.94|AS|Malayo
+116|kh|Camboya|Nom Pen|11.56|104.92|AS|Jemer
+156|cn|China|Pekín|39.90|116.41|AS|Chino mandarín
+268|ge|Georgia|Tiflis|41.72|44.79|AS|Georgiano
+356|in|India|Nueva Delhi|28.61|77.21|AS|Hindi e inglés
+360|id|Indonesia|Yakarta|-6.21|106.85|AS|Indonesio
+364|ir|Irán|Teherán|35.69|51.39|AS|Persa
+368|iq|Irak|Bagdad|33.31|44.37|AS|Árabe y kurdo
+376|il|Israel|Jerusalén|31.77|35.21|AS|Hebreo
+392|jp|Japón|Tokio|35.68|139.69|AS|Japonés
+400|jo|Jordania|Amán|31.95|35.93|AS|Árabe
+398|kz|Kazajistán|Astaná|51.17|71.45|AS|Kazajo y ruso
+414|kw|Kuwait|Kuwait|29.38|47.99|AS|Árabe
+417|kg|Kirguistán|Biskek|42.87|74.59|AS|Kirguís y ruso
+418|la|Laos|Vientián|17.98|102.63|AS|Lao
+422|lb|Líbano|Beirut|33.89|35.50|AS|Árabe
+458|my|Malasia|Kuala Lumpur|3.14|101.69|AS|Malayo
+496|mn|Mongolia|Ulán Bator|47.89|106.91|AS|Mongol
+104|mm|Birmania|Naipyidó|19.76|96.08|AS|Birmano
+524|np|Nepal|Katmandú|27.72|85.32|AS|Nepalí
+408|kp|Corea del Norte|Pionyang|39.04|125.76|AS|Coreano
+512|om|Omán|Mascate|23.59|58.41|AS|Árabe
+586|pk|Pakistán|Islamabad|33.68|73.05|AS|Urdu e inglés
+275|ps|Palestina|Ramala|31.90|35.20|AS|Árabe
+608|ph|Filipinas|Manila|14.60|120.98|AS|Filipino e inglés
+634|qa|Catar|Doha|25.29|51.53|AS|Árabe
+682|sa|Arabia Saudita|Riad|24.71|46.68|AS|Árabe
+410|kr|Corea del Sur|Seúl|37.57|126.98|AS|Coreano
+144|lk|Sri Lanka|Sri Jayawardenapura Kotte|6.89|79.90|AS|Cingalés y tamil
+760|sy|Siria|Damasco|33.51|36.29|AS|Árabe
+158|tw|Taiwán|Taipéi|25.03|121.57|AS|Chino mandarín
+762|tj|Tayikistán|Dusambé|38.56|68.79|AS|Tayiko
+764|th|Tailandia|Bangkok|13.76|100.50|AS|Tailandés
+626|tl|Timor Oriental|Dili|-8.56|125.57|AS|Tetun y portugués
+792|tr|Turquía|Ankara|39.93|32.86|AS|Turco
+795|tm|Turkmenistán|Asjabad|37.96|58.33|AS|Turcomano
+784|ae|Emiratos Árabes Unidos|Abu Dabi|24.45|54.38|AS|Árabe
+860|uz|Uzbekistán|Taskent|41.30|69.24|AS|Uzbeko
+704|vn|Vietnam|Hanói|21.03|105.85|AS|Vietnamita
+887|ye|Yemen|Saná|15.37|44.19|AS|Árabe
+124|ca|Canadá|Ottawa|45.42|-75.70|NA|Inglés y francés
+840|us|Estados Unidos|Washington D. C.|38.90|-77.04|NA|Inglés
+484|mx|México|Ciudad de México|19.43|-99.13|NA|Español
+304|gl|Groenlandia|Nuuk|64.18|-51.72|NA|Groenlandés y danés
+320|gt|Guatemala|Ciudad de Guatemala|14.63|-90.51|NA|Español
+084|bz|Belice|Belmopán|17.25|-88.77|NA|Inglés
+340|hn|Honduras|Tegucigalpa|14.07|-87.19|NA|Español
+222|sv|El Salvador|San Salvador|13.69|-89.22|NA|Español
+558|ni|Nicaragua|Managua|12.11|-86.24|NA|Español
+188|cr|Costa Rica|San José|9.93|-84.08|NA|Español
+591|pa|Panamá|Ciudad de Panamá|8.98|-79.52|NA|Español
+192|cu|Cuba|La Habana|23.11|-82.37|NA|Español
+332|ht|Haití|Puerto Príncipe|18.59|-72.31|NA|Criollo haitiano y francés
+214|do|República Dominicana|Santo Domingo|18.49|-69.93|NA|Español
+388|jm|Jamaica|Kingston|18.02|-76.80|NA|Inglés
+044|bs|Bahamas|Nasáu|25.05|-77.35|NA|Inglés
+630|pr|Puerto Rico|San Juan|18.47|-66.11|NA|Español e inglés
+780|tt|Trinidad y Tobago|Puerto España|10.65|-61.52|NA|Inglés
+032|ar|Argentina|Buenos Aires|-34.60|-58.38|SA|Español
+068|bo|Bolivia|Sucre|-19.04|-65.26|SA|Español, quechua, aimara y otros
+076|br|Brasil|Brasilia|-15.79|-47.88|SA|Portugués
+152|cl|Chile|Santiago|-33.45|-70.67|SA|Español
+170|co|Colombia|Bogotá|4.71|-74.07|SA|Español
+218|ec|Ecuador|Quito|-0.18|-78.47|SA|Español
+328|gy|Guyana|Georgetown|6.80|-58.16|SA|Inglés
+600|py|Paraguay|Asunción|-25.26|-57.58|SA|Español y guaraní
+604|pe|Perú|Lima|-12.05|-77.04|SA|Español y quechua
+740|sr|Surinam|Paramaribo|5.85|-55.20|SA|Neerlandés
+858|uy|Uruguay|Montevideo|-34.90|-56.16|SA|Español
+862|ve|Venezuela|Caracas|10.48|-66.90|SA|Español
+238|fk|Islas Malvinas|Puerto Argentino / Stanley|-51.70|-57.85|SA|Inglés
+036|au|Australia|Canberra|-35.28|149.13|OC|Inglés
+554|nz|Nueva Zelanda|Wellington|-41.29|174.78|OC|Inglés y maorí
+598|pg|Papúa Nueva Guinea|Port Moresby|-9.44|147.18|OC|Inglés, tok pisin e hiri motu
+242|fj|Fiyi|Suva|-18.14|178.44|OC|Inglés, fiyiano e hindi
+090|sb|Islas Salomón|Honiara|-9.43|159.95|OC|Inglés
+548|vu|Vanuatu|Port Vila|-17.73|168.32|OC|Bislama, inglés y francés
+540|nc|Nueva Caledonia|Numea|-22.28|166.46|OC|Francés`;
+
+const DATA = {};
+RAW.trim().split('\n').forEach(l => {
+  const [id,iso,name,cap,lat,lon,cont,lang] = l.split('|');
+  DATA[id] = {id,iso,name,cap,lat:+lat,lon:+lon,cont,lang};
+});
+const NAME_FALLBACK = {'Kosovo':'-1','Somaliland':'706','N. Cyprus':'196'};
+const LIST = Object.values(DATA);
+const flagUrl = iso => `https://flagcdn.com/w320/${iso}.png`;
+const norm = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+
+const state = { sel:null, cont:null, scale:1, spin:true };
+const stage = document.getElementById('stage');
+const svg = d3.select(stage).append('svg');
+const defs = svg.append('defs');
+const grad = defs.append('radialGradient').attr('id','ocean').attr('cx','38%').attr('cy','32%').attr('r','75%');
+grad.append('stop').attr('offset','0%').attr('stop-color','#8fd3ff');
+grad.append('stop').attr('offset','100%').attr('stop-color','#3a8fe0');
+const shade = defs.append('radialGradient').attr('id','shade').attr('cx','38%').attr('cy','32%').attr('r','75%');
+shade.append('stop').attr('offset','60%').attr('stop-color','#000').attr('stop-opacity',0);
+shade.append('stop').attr('offset','100%').attr('stop-color','#0a2a5a').attr('stop-opacity',.28);
+
+const gHalo = svg.append('circle').attr('fill','#bfe6ff').attr('opacity',.45);
+const gSphere = svg.append('path').attr('fill','url(#ocean)');
+const gGrat = svg.append('path').attr('fill','none').attr('stroke','#fff').attr('stroke-opacity',.22).attr('stroke-width',.8);
+const gLand = svg.append('g');
+const gShade = svg.append('path').attr('fill','url(#shade)').attr('pointer-events','none');
+const gCaps = svg.append('g');
+
+const projection = d3.geoOrthographic().clipAngle(90).precision(.4).rotate([60,-15]);
+const path = d3.geoPath(projection);
+const graticule = d3.geoGraticule10();
+let W, H, baseR, features = [];
+
+function size(){
+  W = stage.clientWidth; H = stage.clientHeight;
+  const side = W > 720 ? 136 : 0;
+  baseR = Math.min(W - side, H) * 0.42;
+  projection.translate([side + (W - side)/2, H/2 + (W < 720 ? 40 : 0)]);
+  applyScale();
+}
+function applyScale(){ projection.scale(baseR * state.scale); render(); }
+
+const tip = document.getElementById('tip');
+function render(){
+  if (!features.length) return;
+  const [cx, cy] = projection.translate(), r = projection.scale();
+  gHalo.attr('cx',cx).attr('cy',cy).attr('r',r+14);
+  gSphere.attr('d', path({type:'Sphere'}));
+  gShade.attr('d', path({type:'Sphere'}));
+  gGrat.attr('d', path(graticule));
+  gLand.selectAll('path').attr('d', path)
+    .classed('dim', d => state.cont && (!d.info || d.info.cont !== state.cont))
+    .classed('sel', d => state.sel && d.info === state.sel);
+  drawCaps();
+}
+
+function drawCaps(){
+  const rot = projection.rotate(), center = [-rot[0], -rot[1]];
+  const fs = Math.max(10, Math.min(16, 10 + (state.scale - 1) * 2.2));
+  const vis = [];
+  LIST.forEach(c => {
+    if (state.cont && c.cont !== state.cont) return;
+    const lc = c.lc || [c.lon, c.lat];
+    if (d3.geoDistance(lc, center) > Math.PI/2 - 0.08) return;
+    const capVis = d3.geoDistance([c.lon, c.lat], center) < Math.PI/2 - 0.04;
+    const [x,y] = projection([c.lon, c.lat]);
+    const [lx,ly] = projection(lc);
+    vis.push({c,x,y,lx,ly,capVis});
+  });
+  // selected first, then larger countries get priority
+  vis.sort((a,b) => (b.c === state.sel) - (a.c === state.sel) || (b.c.area||0) - (a.c.area||0));
+  const boxes = [], dr = 4;
+  vis.forEach(v => { if (v.capVis) boxes.push({x0:v.x-dr,x1:v.x+dr,y0:v.y-dr,y1:v.y+dr}); });
+  const hit = b => boxes.some(o => b.x0 < o.x1 && b.x1 > o.x0 && b.y0 < o.y1 && b.y1 > o.y0);
+  vis.forEach(v => {
+    const f = v.c === state.sel ? fs + 4 : fs;
+    const w = v.c.name.length * f * 0.5 + 8, h = f + 2;
+    v.show = false;
+    for (const off of [0, -h*0.75, h*0.75, -h*1.3, h*1.3]){
+      const box = {x0:v.lx-w/2, x1:v.lx+w/2, y0:v.ly+off-h/2, y1:v.ly+off+h/2};
+      if (!hit(box)){ boxes.push(box); v.show = true; v.oy = off; break; }
+    }
+  });
+  const g = gCaps.selectAll('g.cap').data(vis, d => d.c.id);
+  g.exit().remove();
+  const e = g.enter().append('g').attr('class','cap');
+  e.append('circle').attr('class','cap-dot');
+  e.append('text').attr('class','cap-label');
+  const m = e.merge(g);
+  m.select('circle').attr('cx', d => d.x).attr('cy', d => d.y)
+    .attr('r', d => d.c === state.sel ? 6 : 3.2).classed('sel', d => d.c === state.sel)
+    .attr('display', d => d.capVis && (d.show || state.scale >= 1.5 || d.c === state.sel) ? null : 'none')
+    .on('mousemove', (ev, d) => showTip(ev, d.c)).on('mouseleave', () => tip.style.opacity = 0)
+    .on('click', (ev, d) => select(d.c));
+  m.select('text').text(d => d.c.name).attr('x', d => d.lx).attr('y', d => d.ly + (d.oy || 0)).attr('dy','.35em').attr('text-anchor','middle')
+    .style('font-size', d => (d.c === state.sel ? fs + 4 : fs) + 'px')
+    .classed('sel', d => d.c === state.sel)
+    .attr('display', d => d.show ? null : 'none');
+  m.filter(d => d.c === state.sel).raise();
+}
+
+// Rotation animation
+let anim = null;
+function flyTo(lon, lat, scale){
+  const r0 = projection.rotate(), r1 = [-lon, -lat * 0.85, 0];
+  const s0 = state.scale, s1 = scale ?? state.scale;
+  const ip = d3.interpolate(r0, r1);
+  anim && anim.stop();
+  const dur = 1100, t0 = performance.now();
+  anim = d3.timer(() => {
+    const t = Math.min(1, (performance.now() - t0) / dur), k = d3.easeCubicInOut(t);
+    projection.rotate(ip(k));
+    state.scale = s0 + (s1 - s0) * k;
+    projection.scale(baseR * state.scale);
+    render();
+    if (t >= 1) { anim.stop(); anim = null; }
+  });
+}
+
+function select(info){
+  state.sel = info;
+  const card = document.getElementById('card');
+  if (!info){ card.classList.remove('show'); render(); return; }
+  setSpin(false);
+  document.getElementById('c-flag').src = flagUrl(info.iso);
+  document.getElementById('c-flag').alt = 'Bandera de ' + info.name;
+  document.getElementById('c-name').textContent = info.name;
+  document.getElementById('c-cap').textContent = info.cap;
+  document.getElementById('c-cont').textContent = CONT[info.cont].n;
+  document.getElementById('c-lang').textContent = info.lang;
+  card.classList.add('show');
+  const f = features.find(f => f.info === info);
+  let target = Math.max(state.scale, 1.6);
+  if (f){
+    const a = d3.geoArea(f);
+    target = a > 0.3 ? 1.3 : a > 0.05 ? 1.8 : a > 0.01 ? 2.6 : 3.6;
+    const [lon, lat] = d3.geoCentroid(f);
+    flyTo(info.cont === 'EU' && info.id === '643' ? 60 : lon, info.id === '643' ? 58 : lat, target);
+  } else flyTo(info.lon, info.lat, target);
+}
+
+// Drag to rotate
+let v0, r0, q0;
+svg.call(d3.drag()
+  .on('start', ev => {
+    anim && anim.stop(); setSpin(false);
+    svg.classed('dragging', true);
+    r0 = projection.rotate(); v0 = [ev.x, ev.y];
+  })
+  .on('drag', ev => {
+    const k = 75 / projection.scale() * 1.0;
+    projection.rotate([r0[0] + (ev.x - v0[0]) * k, Math.max(-85, Math.min(85, r0[1] - (ev.y - v0[1]) * k)), 0]);
+    render();
+  })
+  .on('end', () => svg.classed('dragging', false)));
+
+svg.on('wheel', ev => {
+  ev.preventDefault();
+  anim && anim.stop();
+  state.scale = Math.max(0.7, Math.min(8, state.scale * Math.exp(-ev.deltaY * 0.0015)));
+  applyScale();
+}, {passive:false});
+
+// Pinch zoom
+const touches = new Map(); let pinch0 = null;
+stage.addEventListener('pointerdown', e => touches.set(e.pointerId, e));
+stage.addEventListener('pointermove', e => {
+  if (!touches.has(e.pointerId)) return;
+  touches.set(e.pointerId, e);
+  if (touches.size === 2){
+    const [a,b] = [...touches.values()], d = Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY);
+    if (!pinch0) pinch0 = {d, s:state.scale};
+    state.scale = Math.max(0.7, Math.min(8, pinch0.s * d / pinch0.d)); applyScale();
+  }
+});
+['pointerup','pointercancel'].forEach(t => stage.addEventListener(t, e => { touches.delete(e.pointerId); if (touches.size < 2) pinch0 = null; }));
+
+document.getElementById('zin').onclick = () => { anim && anim.stop(); flyTo(-projection.rotate()[0], -projection.rotate()[1]/0.85, Math.min(8, state.scale * 1.5)); };
+document.getElementById('zout').onclick = () => { anim && anim.stop(); flyTo(-projection.rotate()[0], -projection.rotate()[1]/0.85, Math.max(0.7, state.scale / 1.5)); };
+document.getElementById('close').onclick = () => select(null);
+
+// Auto spin
+let spinT = null;
+function setSpin(on){
+  state.spin = on;
+  document.getElementById('spin').classList.toggle('on', on);
+  if (on && !spinT){
+    let last = performance.now();
+    spinT = d3.timer(() => {
+      const now = performance.now(), dt = now - last; last = now;
+      if (anim) return;
+      const r = projection.rotate(); projection.rotate([r[0] + dt * 0.006, r[1], r[2]]); render();
+    });
+  } else if (!on && spinT){ spinT.stop(); spinT = null; }
+}
+document.getElementById('spin').onclick = () => setSpin(!state.spin);
+
+// Continent chips
+const CONT_VIEW = {AF:[18,3,1.5],EU:[15,52,2.4],AS:[90,35,1.3],NA:[-95,40,1.4],SA:[-60,-18,1.5],OC:[145,-25,1.6]};
+const chips = document.getElementById('chips');
+function drawChips(){
+  chips.innerHTML = '';
+  const all = document.createElement('button');
+  all.className = 'chip' + (state.cont ? '' : ' on'); all.innerHTML = '<i style="background:#1f2a44"></i>Todos';
+  all.onclick = () => { state.cont = null; drawChips(); flyTo(-projection.rotate()[0], 10, 1); };
+  chips.appendChild(all);
+  Object.entries(CONT).forEach(([k,v]) => {
+    const b = document.createElement('button');
+    b.className = 'chip' + (state.cont === k ? ' on' : '');
+    b.innerHTML = `<i style="background:${v.c}"></i>${v.n}`;
+    b.onclick = () => {
+      state.cont = state.cont === k ? null : k; drawChips(); setSpin(false);
+      if (state.sel && state.sel.cont !== state.cont) select(null);
+      if (state.cont){ const [lon,lat,s] = CONT_VIEW[k]; flyTo(lon, lat/0.85, s); } else render();
+    };
+    chips.appendChild(b);
+  });
+}
+drawChips();
+
+// Search
+const q = document.getElementById('q'), results = document.getElementById('results');
+let hits = [], active = 0;
+function showResults(){
+  const s = norm(q.value.trim());
+  if (!s){ results.hidden = true; return; }
+  hits = LIST.filter(c => norm(c.name).includes(s) || norm(c.cap).includes(s))
+    .sort((a,b) => norm(a.name).startsWith(s) ? -1 : norm(b.name).startsWith(s) ? 1 : 0).slice(0, 8);
+  active = 0;
+  results.innerHTML = hits.length ? '' : '<button disabled>No encontramos ese lugar</button>';
+  hits.forEach((c,i) => {
+    const b = document.createElement('button');
+    if (i === active) b.classList.add('active');
+    b.innerHTML = `<img src="${flagUrl(c.iso)}" alt="">${c.name}<small>${c.cap}</small>`;
+    b.onmousedown = e => { e.preventDefault(); pick(c); };
+    results.appendChild(b);
+  });
+  results.hidden = false;
+}
+function pick(c){ q.value = ''; results.hidden = true; q.blur(); if (state.cont && state.cont !== c.cont){ state.cont = null; drawChips(); } select(c); }
+q.addEventListener('input', showResults);
+q.addEventListener('blur', () => setTimeout(() => results.hidden = true, 100));
+q.addEventListener('keydown', e => {
+  const btns = results.querySelectorAll('button');
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+    e.preventDefault(); active = (active + (e.key === 'ArrowDown' ? 1 : -1) + hits.length) % hits.length;
+    btns.forEach((b,i) => b.classList.toggle('active', i === active));
+  } else if (e.key === 'Enter' && hits[active]) pick(hits[active]);
+  else if (e.key === 'Escape'){ q.value = ''; results.hidden = true; }
+});
+
+const LABEL_POS = {'250':[2.5,46.6],'840':[-99,39],'578':[9,61.5],'643':[95,62],'124':[-100,58],'554':[172,-42],'152':[-71,-30],'360':[114,-1],'076':[-52,-10],'208':[9.3,56]};
+function showTip(ev, c){
+  tip.innerHTML = `<img src="${flagUrl(c.iso)}" alt=""><span style="opacity:.7;font-weight:600">Capital:</span> ${c.cap}`;
+  tip.style.left = ev.clientX + 14 + 'px'; tip.style.top = ev.clientY + 14 + 'px'; tip.style.opacity = 1;
+}
+// Load geometry
+d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json').then(topo => {
+  features = topojson.feature(topo, topo.objects.countries).features.filter(f => f.id !== '010');
+  features.forEach(f => {
+    const id = f.id ?? NAME_FALLBACK[f.properties.name];
+    f.info = DATA[id] || DATA[NAME_FALLBACK[f.properties.name]] || null;
+    if (f.info){
+      const a = d3.geoArea(f);
+      if (a > (f.info.area || 0)){ f.info.area = a; f.info.lc = LABEL_POS[f.info.id] || d3.geoCentroid(f); }
+    }
+  });
+  gLand.selectAll('path').data(features).join('path')
+    .attr('class','country')
+    .attr('fill', d => d.info ? CONT[d.info.cont].c : '#e9e2d2')
+    .on('click', (ev, d) => { if (d.info) select(d.info); })
+    .on('mousemove', (ev, d) => {
+      if (!d.info) { tip.style.opacity = 0; return; }
+      showTip(ev, d.info);
+    })
+    .on('mouseleave', () => tip.style.opacity = 0);
+  size();
+  setSpin(true);
+});
+window.addEventListener('resize', size);
+size();
+</script>
+</body>
+</html>
